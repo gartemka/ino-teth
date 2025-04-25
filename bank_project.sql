@@ -60,3 +60,38 @@ GROUP BY a.account_id
 HAVING a.balance <> SUM(c.card_balance);
 --5. Запрос для получения списка банковских аккаунтов, у которых баланс не совпадает с суммой баланса по карточкам:
 
+--6
+SELECT s.status_name, COUNT(c.card_id) AS num_cards
+FROM Customers cu
+JOIN SocialStatus s ON cu.social_status_id = s.social_status_id
+JOIN Accounts a ON cu.customer_id = a.customer_id
+JOIN Cards c ON a.account_id = c.account_id
+GROUP BY s.status_name;
+--GROUP BY
+
+-- 7
+CREATE PROCEDURE AddMoneyForStatus(IN status_id INT)
+BEGIN
+    DECLARE done INT DEFAULT 0;
+    DECLARE account_id INT;
+    DECLARE cur CURSOR FOR 
+        SELECT a.account_id FROM Accounts a
+        JOIN Customers c ON a.customer_id = c.customer_id
+        WHERE c.social_status_id = status_id;
+
+    OPEN cur;
+    read_loop: LOOP
+        FETCH cur INTO account_id;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        UPDATE Accounts SET balance = balance + 10 WHERE account_id = account_id;
+    END LOOP;
+
+    CLOSE cur;
+    
+    -- Проверка работы процедуры
+    SELECT * FROM Accounts WHERE account_id IN (SELECT account_id FROM Accounts WHERE customer_id IN (SELECT customer_id FROM Customers WHERE social_status_id = status_id));
+
+END;

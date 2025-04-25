@@ -54,7 +54,7 @@ JOIN Banks b ON a.bank_id = b.bank_id;
 
 
 SELECT a.account_id, a.balance - SUM(c.card_balance) AS balance_difference
-FROM Accounts a
+FROM Account a
 JOIN Cards c ON a.account_id = c.account_id
 GROUP BY a.account_id
 HAVING a.balance <> SUM(c.card_balance);
@@ -63,8 +63,8 @@ HAVING a.balance <> SUM(c.card_balance);
 --6
 SELECT s.status_name, COUNT(c.card_id) AS num_cards
 FROM Customers cu
-JOIN SocialStatus s ON cu.social_status_id = s.social_status_id
-JOIN Accounts a ON cu.customer_id = a.customer_id
+JOIN SocialStatus s ON cu.social_id_status= s.social_id_status
+JOIN Account a ON cu.customer_id = a.customer_id
 JOIN Cards c ON a.account_id = c.account_id
 GROUP BY s.status_name;
 --GROUP BY
@@ -75,9 +75,9 @@ BEGIN
     DECLARE done INT DEFAULT 0;
     DECLARE account_id INT;
     DECLARE cur CURSOR FOR 
-        SELECT a.account_id FROM Accounts a
+        SELECT a.account_id FROM Account a
         JOIN Customers c ON a.customer_id = c.customer_id
-        WHERE c.social_status_id = status_id;
+        WHERE c.social_id_status = status_id;
 
     OPEN cur;
     read_loop: LOOP
@@ -86,12 +86,62 @@ BEGIN
             LEAVE read_loop;
         END IF;
 
-        UPDATE Accounts SET balance = balance + 10 WHERE account_id = account_id;
+        UPDATE Account SET balance = balance + 10 WHERE account_id = account_id;
     END LOOP;
 
     CLOSE cur;
     
     -- Проверка работы процедуры
-    SELECT * FROM Accounts WHERE account_id IN (SELECT account_id FROM Accounts WHERE customer_id IN (SELECT customer_id FROM Customers WHERE social_status_id = status_id));
+    SELECT * FROM Account WHERE account_id IN (SELECT account_id FROM Account WHERE customer_id IN (SELECT customer_id FROM Customers WHERE social_id_status = status_id));
 
+END;
+
+-- 8
+CREATE PROCEDURE TransferFunds(IN account_id INT, IN card_id INT, IN transfer_amount DECIMAL(10, 2))
+BEGIN
+    DECLARE account_balance DECIMAL(10, 2);
+    DECLARE card_balance DECIMAL(10, 2);
+
+    -- Проверяем текущие балансы
+    SELECT balance INTO account_balance FROM Account WHERE account_id = account_id;
+    SELECT card_balance INTO card_balance FROM Cards WHERE card_id = card_id;
+
+    IF account_balance >= transfer_amount THEN
+        -- Обновляем баланс аккаунта и карты
+        UPDATE Account SET balance = balance - transfer_amount WHERE account_id = account_id;
+        UPDATE Cards SET card_balance = card_balance + transfer_amount WHERE card_id = card_id;
+    ELSE
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Not enough funds on account';
+    END IF;
+    
+    -- Проверка работы процедуры:
+    SELECT * FROM Accounts WHERE account_id = account_id;
+    SELECT * FROM Cards WHERE card_id = card_id;
+END;
+
+
+--9
+CREATE TRIGGER CheckAccountBalance BEFORE UPDATE ON Account
+FOR EACH ROW
+BEGIN
+    DECLARE total_card_balance DECIMAL(10, 2);
+
+    SELECT SUM(card_balance) INTO total_card_balance 
+    FROM Cards WHERE account_id = OLD.account_id;
+
+    IF NEW.balance < total_card_balance THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Account balance cannot be less than total card balances';
+    END IF;
+END;
+
+CREATE TRIGGER CheckCardBalance BEFORE UPDATE ON Cards
+FOR EACH ROW
+BEGIN
+    DECLARE account_balance DECIMAL(10, 2);
+
+    SELECT balance INTO account_balance FROM Accounts WHERE account_id = OLD.account_id;
+
+    IF NEW.card_balance > account_balance THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Card balance cannot exceed account balance';
+    END IF;
 END;
